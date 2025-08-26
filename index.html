@@ -21,9 +21,11 @@
     .seg button{padding:.5rem 1rem;font-size:.875rem;background:#fff;color:#1f2937}
     .seg button.active{background:#2563eb;color:#fff}
     .row{display:flex;gap:.75rem;align-items:baseline;flex-wrap:wrap}
-    .row .label{min-width:125px;color:#334155;font-weight:600}
+    .row .label{min-width:140px;color:#334155;font-weight:600}
     .warn{background:#fffbeb;border:1px solid #fcd34d;color:#78350f;border-radius:12px;padding:12px}
+    .err{background:#fef2f2;border:1px solid #fecaca;color:#7f1d1d;border-radius:12px;padding:12px}
     .ok{background:#eef2ff;border:1px solid #c7d2fe;color:#3730a3;border-radius:12px;padding:12px}
+    .badge{display:inline-flex;align-items:center;border-radius:8px;padding:.15rem .5rem;font-size:.75rem;font-weight:600}
   </style>
 </head>
 <body class="bg-slate-50 min-h-screen">
@@ -85,7 +87,7 @@
       <div class="grid lg:grid-cols-3 gap-4 mt-4" id="panelAdult" role="tabpanel" aria-labelledby="tabAdult">
         <div>
           <label for="age" class="block text-sm font-medium">Возраст (лет)</label>
-          <input id="age" type="number" min="0" step="1" value="35" class="mt-1 w-full border rounded-lg px-3 py-2" />
+          <input id="age" type="number" min="0" step="0.01" value="35" class="mt-1 w-full border rounded-lg px-3 py-2" />
         </div>
         <div>
           <label for="weight" class="block text-sm font-medium">Масса (кг)</label>
@@ -116,13 +118,13 @@
           <p class="text-xs muted mt-1">Если eGFR/ClCr не введён: у взрослых — Cockcroft–Gault; у детей — формула Шварца (k=0.413) при указании роста.</p>
           <div id="pedsHtRow" class="hidden mt-2">
             <div class="grid grid-cols-2 gap-3">
-              <input id="height" type="number" step="0.5" placeholder="Рост (см) для формулы Шварца" class="w-full border rounded-lg px-3 py-2" />
+              <input id="height" type="number" step="0.5" placeholder="Рост (см) для формулы Шварца (обязательно, если вводите SCr)" class="w-full border rounded-lg px-3 py-2" />
               <div class="text-xs muted flex items-center">eGFRдет = 0.413 × рост(см) / SCr(mg/dL)</div>
             </div>
           </div>
         </div>
         <div>
-          <label for="hepatic" class="block text см font-medium">Печёночная недостаточность</label>
+          <label for="hepatic" class="block text-sm font-medium">Печёночная недостаточность</label>
           <select id="hepatic" class="mt-1 w-full border rounded-lg px-3 py-2">
             <option value="none">Нет</option>
             <option value="mild">Лёгкая/умеренная</option>
@@ -144,7 +146,7 @@
           <select id="nosology" class="mt-1 w-full border rounded-lg px-3 py-2">
             <option value="">— не выбрано —</option>
           </select>
-          <div id="nosologyHelp" class="text-xs muted mt-1">При выборе нозологии подставляются режимы и длительность из соответствующего протокола. Можно оставить пустым и рассчитывать по монографии препарата.</div>
+          <div id="nosologyHelp" class="text-xs muted mt-1">Выбор нозологии фиксирует список разрешённых МНН и длительность курса по протоколу.</div>
         </div>
         <div>
           <label class="block text-sm font-medium">Рекомендуемые препараты для нозологии</label>
@@ -178,13 +180,12 @@
     <!-- ПРИМЕЧАНИЯ -->
     <section class="mt-6 text-xs text-slate-600">
       <div class="card">
-        <h3 class="font-semibold mb-2">Принципы</h3>
+        <h3 class="font-semibold mb-2">Принципы безопасности</h3>
         <ul class="list-disc ml-5 space-y-1">
-          <li>Режимы/кратность — строго из международных руководств (WHO AWaRe/EML; IDSA/ATS; AAP; NICE/BNF; UCSF IDMP). В интерфейсе используются точные названия из документов.</li>
-          <li>eGFR: Cockcroft–Gault (взрослые) или формула Шварца (дети, при вводе роста); либо используйте вручную введённый eGFR/ClCr.</li>
-          <li>Nitrofurantoin: избегать при eGFR &lt;30 мл/мин/1,73 м² (соответствует монографиям/гайдам).</li>
+          <li>Автоматическая проверка применимости по возрасту/маршруту/нозологии. При несоответствии — <b>красное</b> предупреждение и блокировка расчёта.</li>
+          <li>Педиатрический режим активируется при возрасте &lt;18 лет. Для расчёта по SCr у детей обязательно ввести рост (формула Шварца).</li>
+          <li>Коррекция дозы по почечной функции: Cockcroft–Gault (взрослые) / Шварц (дети) или вручную введённый eGFR/ClCr.</li>
         </ul>
-        <p class="mt-2 text-[11px]">⚠️ Справочный инструмент. Всегда сверяйтесь с официальными протоколами и локальными документами.</p>
       </div>
     </section>
   </main>
@@ -194,119 +195,181 @@
 const byId = (x)=>document.getElementById(x);
 function cockcroftGaultCrCl({age,weight,sex,scr,scrUnit}){ if(!age||!weight||!sex||!scr) return null; let scr_mgdl=scrUnit==='umol'?(scr/88.4):scr; if(scr_mgdl<=0) return null; let crcl=((140-age)*weight)/(72*scr_mgdl); if(sex==='F') crcl*=0.85; return Math.max(1,Math.round(crcl)); }
 function schwartz({height, scr, scrUnit}){ if(!height||!scr) return null; let scr_mgdl = scrUnit==='umol'?(scr/88.4):scr; if(scr_mgdl<=0) return null; return Math.round(0.413*height/scr_mgdl); }
-function formatDose(mg){ if(!mg && mg!==0) return ''; if(mg>=1000){ return (mg/1000).toFixed(2).replace(/\.00$/,'')+' g'; } return Math.round(mg)+' mg'; }
+function formatDose(mg){ if(mg==null) return ''; if(mg>=1000){ const g=(mg/1000); const s=g.toFixed(2).replace(/\.00$/,''); return s+' g'; } return Math.round(mg)+' mg'; }
 function hoursFromFreq(freq){ return Math.round(24/(freq||1)); }
-function freqText(freq){ const times= freq || 1; const hours = hoursFromFreq(times); const timesRu = {1:'1 раз/сут',2:'2 раза/сут',3:'3 раза/сут',4:'4 раза/сут'}; return `${timesRu[times]||`${times} раз/сут`} (q${hours}h)`; }
+function freqText(freq){ const times= freq || 1; const hours = hoursFromFreq(times); const map={1:'1 раз/сут',2:'2 раза/сут',3:'3 раза/сут',4:'4 раза/сут',6:'6 раз/сут'}; return `${map[times]||`${times} раз/сут`} (q${hours}h)`; }
 
 // ===== AWaRe ТЭГИ =====
 const AWARE = { amoxicillin:'ACCESS', amoxclav:'ACCESS', azithromycin:'WATCH', ceftriaxone:'WATCH', cephalexin:'ACCESS', cefuroxime:'WATCH', doxycycline:'ACCESS', tmpsmx:'ACCESS', ciprofloxacin:'WATCH', levofloxacin:'WATCH', metronidazole:'ACCESS', nitrofurantoin:'ACCESS' };
 function awareBadge(drug){ const group=AWARE[drug]; const map={ACCESS:'background:#dcfce7;color:#166534', WATCH:'background:#fef9c3;color:#92400e', RESERVE:'background:#ffe4e6;color:#9f1239'}; return group?`<span class="pill" style="${map[group]}">AWaRe: ${group}</span>`:''; }
 
 // ===== БАЗА ПРЕПАРАТОВ =====
+// age_lims в годах (дробных): min_age, avoid_under, caution_note
 const DB = {
-  amoxicillin:{ name:'Amoxicillin', routes:['PO'], adult:[ {key:'standard', dose_mg:500, freq:3, route:'PO'}, {key:'severe', dose_mg:1000, freq:3, route:'PO'} ], ped:{ perkg_perday_min:40, perkg_perday_max:90, freq:2, max_day_mg:4000 }, max_day_mg:4000, renal:[ {maxCrCl:10, change:{freq:1}}, {maxCrCl:30, change:{freq:2}} ], hepatic:{ severe:{ factor:1 } }, forms:['таб 250/500 mg; сусп 125/250 mg/5 mL'], ci:['Гиперчувствительность к пенициллинам/β-лактамам'] },
-  amoxclav:{ name:'Amoxicillin/Clavulanate', routes:['PO','IV'], adult:[ {key:'standard', dose_mg:875, freq:2, route:'PO'}, {key:'severe', dose_mg:2000, freq:2, route:'PO'} ], ped:{ perkg_perday_min:40, perkg_perday_max:90, freq:2, max_day_mg:4000, clav_limit_mgkgday:10 }, max_day_mg:4000, renal:[ {maxCrCl:10, change:{freq:1, cap875:true}}, {maxCrCl:30, change:{freq:2, cap875:true}} ], hepatic:{ severe:{ factor:1 } }, forms:['таб 250/125, 500/125, 875/125; XR 2000/125; сусп'], ci:['Гиперчувствительность к β‑лактамам','Холестатическая желтуха/печёночная дисфункция, связанная с предыдущим приёмом ко‑амоксиклава (в анамнезе)'] },
-  azithromycin:{ name:'Azithromycin', routes:['PO','IV'], adult:[ {key:'standard', dose_mg:500, freq:1, route:'PO', pattern:'500 mg день 1, затем 250 mg 1×/сут дни 2–5'} ], ped:{ perkg_day1:10, perkg_day2_5:5, max_day1_mg:500, max_other_mg:250 }, max_day_mg:500, renal:[ {maxCrCl:0, change:{}} ], hepatic:{ severe:{factor:1} }, forms:['таб 250/500; сусп 200 mg/5 mL'], ci:['Гиперчувствительность к макролидам'] },
-  ceftriaxone:{ name:'Ceftriaxone', routes:['IV'], adult:[ {key:'standard', dose_mg:1000, freq:1, route:'IV'}, {key:'severe', dose_mg:2000, freq:1, route:'IV'}, {key:'meningitis', dose_mg:2000, freq:2, route:'IV'} ], ped:{ perkg_perday_min:50, perkg_perday_max:100, freq:1, max_day_mg:4000, meningitis:{ perkg_perday:100, freq:2, max_day_mg:4000 } }, max_day_mg:4000, renal:[ {maxCrCl:0, change:{}} ], hepatic:{ severe:{ factor:1 } }, forms:['в/в флаконы 1 g, 2 g'], ci:['Гиперчувствительность к цефалоспоринам','Гипербилирубинемия у новорождённых; премикс с кальций‑содержащими р‑рами у новорождённых'] },
-  cephalexin:{ name:'Cephalexin', routes:['PO'], adult:[ {key:'standard', dose_mg:500, freq:4, route:'PO'} ], ped:{ perkg_perday_min:25, perkg_perday_max:50, freq:3, max_day_mg:4000 }, max_day_mg:4000, renal:[ {maxCrCl:10, change:{freq:1}}, {maxCrCl:50, change:{freq:2}} ], hepatic:{ severe:{ factor:1 } }, forms:['таб/капс 250/500 mg; сусп 125/250 mg/5 mL'], ci:['Гиперчувствительность к цефалоспоринам'] },
-  cefuroxime:{ name:'Cefuroxime (axetil, PO)', routes:['PO'], adult:[ {key:'standard', dose_mg:500, freq:2, route:'PO'} ], ped:{ perkg_perday_min:20, perkg_perday_max:30, freq:2, max_day_mg:1000 }, max_day_mg:1000, renal:[ {maxCrCl:30, change:{freq:1}} ], hepatic:{ severe:{ factor:1 } }, forms:['таб 250/500 mg'], ci:['Гиперчувствительность к цефалоспоринам'] },
-  doxycycline:{ name:'Doxycycline', routes:['PO','IV'], adult:[ {key:'standard', dose_mg:100, freq:2, route:'PO'} ], ped:{ note:">=8 лет: 2.2 mg/kg q12h (день 1), затем 2.2 mg/kg q24h; макс 200 mg/сут" }, max_day_mg:200, renal:[ {maxCrCl:0, change:{}} ], hepatic:{ severe:{ factor:1 } }, forms:['таб/капс 100 mg'], ci:['Гиперчувствительность к тетрациклинам','Возраст <8 лет (для большинства показаний)'] },
-  tmpsmx:{ name:'Trimethoprim/Sulfamethoxazole', routes:['PO','IV'], adult:[ {key:'standard', dose_mg:160, freq:2, route:'PO'} ], ped:{ perkg_perday_TMP:8, freq:2, max_day_mg_TMP:320 }, max_day_mg_TMP:320, renal:[ {maxCrCl:15, change:{ doseFactor:0.5, freq:1 }}, {maxCrCl:30, change:{ doseFactor:0.5 }} ], hepatic:{ severe:{ factor:1 } }, forms:['таб SS 80/400; DS 160/800'], ci:['Гиперчувствительность к сульфаниламидам/триметоприму','Тяжёлое поражение печени','Мегалобластная анемия вследствие дефицита фолатов'] },
-  ciprofloxacin:{ name:'Ciprofloxacin', routes:['PO','IV'], adult:[ {key:'standard', dose_mg:500, freq:2, route:'PO'} ], ped:{ note:'У детей по строгим показаниям' }, max_day_mg:1500, renal:[ {maxCrCl:30, change:{freq:1}}, {maxCrCl:50, change:{}} ], hepatic:{ severe:{ factor:1 } }, forms:['таб 250/500/750 mg; р-р в/в 400 mg'], ci:['Гиперчувствительность к фторхинолонам','История разрыва сухожилия, связанного с хинолонами'] },
-  levofloxacin:{ name:'Levofloxacin', routes:['PO','IV'], adult:[ {key:'standard', dose_mg:500, freq:1, route:'PO'}, {key:'severe', dose_mg:750, freq:1, route:'PO'} ], ped:{ note:'Обычно не используется без спец. показаний' }, max_day_mg:750, renal:[ {maxCrCl:20, change:{ schedule:'500 mg загрузка, затем 250 mg q48h (для режима 500); 750→500 q72h' }}, {maxCrCl:49, change:{ schedule:'500 mg загрузка, затем 250 mg q24h; 750→500 q48h' }} ], hepatic:{ severe:{ factor:1 } }, forms:['таб 250/500/750 mg'], ci:['Гиперчувствительность к фторхинолонам','Эпилепсия','История разрыва сухожилия, связанного с хинолонами'] },
-  metronidazole:{ name:'Metronidazole', routes:['PO','IV'], adult:[ {key:'standard', dose_mg:500, freq:3, route:'PO'} ], ped:{ perkg_perdose:7.5, freq:3, max_day_mg:2000 }, max_day_mg:2000, renal:[ {maxCrCl:0, change:{}} ], hepatic:{ severe:{ factor:0.5 } }, forms:['таб/капс 250/500 mg; р-р в/в'], ci:['Гиперчувствительность к нитроимидазолам'] },
-  nitrofurantoin:{ name:'Nitrofurantoin (macrocrystals/monohydrate)', routes:['PO'], adult:[ {key:'standard', dose_mg:100, freq:2, route:'PO'} ], ped:{ note:'У детей старшего возраста — по локальным протоколам' }, max_day_mg:200, renal:[ {maxCrCl:30, change:{ avoid:true }} ], hepatic:{ severe:{ factor:1 } }, forms:['капс/таб 50/100 mg'], ci:['eGFR <30 мл/мин/1,73 м²','Дефицит G6PD','Гиперчувствительность к нитрофуранам'] }
+  amoxicillin:{ name:'Amoxicillin', routes:['PO'], adult:[ {key:'standard', dose_mg:500, freq:3, route:'PO'}, {key:'severe', dose_mg:1000, freq:3, route:'PO'} ], ped:{ perkg_perday_min:40, perkg_perday_max:90, freq:2, max_day_mg:4000 }, max_day_mg:4000, renal:[ {maxCrCl:10, change:{freq:1}}, {maxCrCl:30, change:{freq:2}} ], hepatic:{}, forms:['таб 250/500 mg; сусп 125/250 mg/5 mL'], ci:['Гиперчувствительность к пенициллинам/β‑лактамам'], age_lims:{} },
+  amoxclav:{ name:'Amoxicillin/Clavulanate', routes:['PO','IV'], adult:[ {key:'standard', dose_mg:875, freq:2, route:'PO'}, {key:'severe', dose_mg:2000, freq:2, route:'PO'} ], ped:{ perkg_perday_min:40, perkg_perday_max:90, freq:2, max_day_mg:4000, clav_limit_mgkgday:10 }, max_day_mg:4000, renal:[ {maxCrCl:10, change:{freq:1, cap875:true}}, {maxCrCl:30, change:{freq:2, cap875:true}} ], hepatic:{}, forms:['таб 250/125, 500/125, 875/125; XR 2000/125; сусп'], ci:['Гиперчувствительность к β‑лактамам','Холестатическая желтуха/печёночная дисфункция в анамнезе на фоне препарата'], age_lims:{} },
+  azithromycin:{ name:'Azithromycin', routes:['PO','IV'], adult:[ {key:'standard', dose_mg:500, freq:1, route:'PO', pattern:'500 mg день 1, затем 250 mg 1×/сут дни 2–5'} ], ped:{ perkg_day1:10, perkg_day2_5:5, max_day1_mg:500, max_other_mg:250 }, max_day_mg:500, renal:[{}], hepatic:{}, forms:['таб 250/500; сусп 200 mg/5 mL'], ci:['Гиперчувствительность к макролидам'], age_lims:{} },
+  ceftriaxone:{ name:'Ceftriaxone', routes:['IV'], adult:[ {key:'standard', dose_mg:1000, freq:1, route:'IV'}, {key:'severe', dose_mg:2000, freq:1, route:'IV'}, {key:'meningitis', dose_mg:2000, freq:2, route:'IV'} ], ped:{ perkg_perday_min:50, perkg_perday_max:100, freq:1, max_day_mg:4000, meningitis:{ perkg_perday:100, freq:2, max_day_mg:4000 } }, max_day_mg:4000, renal:[{}], hepatic:{}, forms:['в/в флаконы 1 g, 2 g'], ci:['Гиперчувствительность к цефалоспоринам','Неонаты: риск гипербилирубинемии; избегать смешивания с кальцием'], age_lims:{ avoid_under:0.077, caution_note:'У новорождённых (≈<28 дней) избегать; требуется отдельный протокол.' } },
+  cephalexin:{ name:'Cephalexin', routes:['PO'], adult:[ {key:'standard', dose_mg:500, freq:4, route:'PO'} ], ped:{ perkg_perday_min:25, perkg_perday_max:50, freq:3, max_day_mg:4000 }, max_day_mg:4000, renal:[ {maxCrCl:10, change:{freq:1}}, {maxCrCl:50, change:{freq:2}} ], hepatic:{}, forms:['таб/капс 250/500 mg; сусп 125/250 mg/5 mL'], ci:['Гиперчувствительность к цефалоспоринам'], age_lims:{} },
+  cefuroxime:{ name:'Cefuroxime (axetil, PO)', routes:['PO'], adult:[ {key:'standard', dose_mg:500, freq:2, route:'PO'} ], ped:{ perkg_perday_min:20, perkg_perday_max:30, freq:2, max_day_mg:1000 }, max_day_mg:1000, renal:[ {maxCrCl:30, change:{freq:1}} ], hepatic:{}, forms:['таб 250/500 mg'], ci:['Гиперчувствительность к цефалоспоринам'], age_lims:{} },
+  doxycycline:{ name:'Doxycycline', routes:['PO','IV'], adult:[ {key:'standard', dose_mg:100, freq:2, route:'PO'} ], ped:{ note:">=8 лет: 2.2 mg/kg q12h (день 1), затем 2.2 mg/kg q24h; макс 200 mg/сут" }, max_day_mg:200, renal:[{}], hepatic:{}, forms:['таб/капс 100 mg'], ci:['Гиперчувствительность к тетрациклинам'], age_lims:{ avoid_under:8, caution_note:'До 8 лет — использовать только по жизненным показаниям.' } },
+  tmpsmx:{ name:'Trimethoprim/Sulfamethoxazole', routes:['PO','IV'], adult:[ {key:'standard', dose_mg:160, freq:2, route:'PO'} ], ped:{ perkg_perday_TMP:8, freq:2, max_day_mg_TMP:320, min_age:0.166 }, max_day_mg_TMP:320, renal:[ {maxCrCl:15, change:{ doseFactor:0.5, freq:1 }}, {maxCrCl:30, change:{ doseFactor:0.5 }} ], hepatic:{}, forms:['таб SS 80/400; DS 160/800'], ci:['Гиперчувствительность к сульфаниламидам/триметоприму','Тяжёлое поражение печени','Мегалобластная анемия (дефицит фолатов)'], age_lims:{ avoid_under:0.166, caution_note:'<2 месяцев — противопоказан (риск керниктеруса).' } },
+  ciprofloxacin:{ name:'Ciprofloxacin', routes:['PO','IV'], adult:[ {key:'standard', dose_mg:500, freq:2, route:'PO'} ], ped:{ note:'Использовать у детей только по особым показаниям (например, осложнённые UTI/пиелонефрит, ингаляционная сибирская язва).'}, max_day_mg:1500, renal:[ {maxCrCl:30, change:{freq:1}} ], hepatic:{}, forms:['таб 250/500/750 mg; р-р в/в 400 mg'], ci:['Гиперчувствительность к фторхинолонам','История разрыва сухожилия на хинолонах'], age_lims:{ avoid_under:18, caution_note:'В педиатрии — не рекомендуется без специальных показаний; текущая нозология может не подходить.' } },
+  levofloxacin:{ name:'Levofloxacin', routes:['PO','IV'], adult:[ {key:'standard', dose_mg:500, freq:1, route:'PO'}, {key:'severe', dose_mg:750, freq:1, route:'PO'} ], ped:{ note:'В педиатрии применяется ограниченно по спец. показаниям.' }, max_day_mg:750, renal:[ {maxCrCl:20, change:{ schedule:'500 mg загрузка, затем 250 mg q48h (для режима 500); 750→500 q72h' }}, {maxCrCl:49, change:{ schedule:'500 mg загрузка, затем 250 mg q24h; 750→500 q48h' }} ], hepatic:{}, forms:['таб 250/500/750 mg'], ci:['Гиперчувствительность к фторхинолонам','Эпилепсия','История разрыва сухожилия на хинолонах'], age_lims:{ avoid_under:18, caution_note:'В педиатрии — только по спец. показаниям; данный калькулятор не рассчитывает такие режимы.' } },
+  metronidazole:{ name:'Metronidazole', routes:['PO','IV'], adult:[ {key:'standard', dose_mg:500, freq:3, route:'PO'} ], ped:{ perkg_perdose:7.5, freq:3, max_day_mg:2000 }, max_day_mg:2000, renal:[{}], hepatic:{ severe:{ factor:0.5 } }, forms:['таб/капс 250/500 mg; р-р в/в'], ci:['Гиперчувствительность к нитроимидазолам'], age_lims:{} },
+  nitrofurantoin:{ name:'Nitrofurantoin (macrocrystals/monohydrate)', routes:['PO'], adult:[ {key:'standard', dose_mg:100, freq:2, route:'PO'} ], ped:{ note:'У детей старшего возраста — по локальным протоколам' }, max_day_mg:200, renal:[ {maxCrCl:30, change:{ avoid:true }} ], hepatic:{}, forms:['капс/таб 50/100 mg'], ci:['eGFR <30 мл/мин/1,73 м²','Дефицит G6PD','Гиперчувствительность к нитрофуранам'], age_lims:{} }
 };
 
 // ===== НОЗОЛОГИИ/ПРЕСЕТЫ =====
 const PRESETS = {
-  cap_adult: { title:'CAP у взрослых без коморбидностей — IDSA/ATS 2019', duration:'5 дней при клинической стабилизации', options:[ {drug:'amoxicillin', regimen:{dose_mg:1000, freq:3, route:'PO'}}, {drug:'doxycycline', regimen:{dose_mg:100, freq:2, route:'PO'}}, {drug:'azithromycin', regimen:{pattern:'500 mg день 1, затем 250 mg q24h дни 2–5', route:'PO'}} ] },
-  strep_adult: { title:'Острый стрептококковый фарингит — IDSA/CDC', duration:'10 дней', options:[ {drug:'amoxicillin', regimen:{dose_mg:500, freq:2, route:'PO'}}, {drug:'cephalexin', regimen:{dose_mg:500, freq:2, route:'PO'}} ] },
-  aom_child: { title:'Острый средний отит у детей — AAP 2013', duration:'5–10 дней (по возрасту/тяжести)', options:[ {drug:'amoxicillin', ped:{perkg_perday:90, freq:2, max_day_mg:4000}}, {drug:'amoxclav', ped:{perkg_perday:90, freq:2, max_day_mg:4000}} ] },
-  sinusitis_adult: { title:'Острый бактериальный риносинусит — IDSA/NICE', duration:'5–7 дней', options:[ {drug:'amoxclav', regimen:{dose_mg:875, freq:2, route:'PO'}}, {drug:'doxycycline', regimen:{dose_mg:100, freq:2, route:'PO'}} ] },
-  cystitis_woman: { title:'Неосложнённый цистит у женщин — IDSA 2011', duration:'Nitrofurantoin 5 дней; TMP/SMX 3 дня (при местной резистентности ≤20%)', options:[ {drug:'nitrofurantoin', regimen:{dose_mg:100, freq:2, route:'PO'}}, {drug:'tmpsmx', regimen:{dose_mg:160, freq:2, route:'PO'}} ] },
-  cellulitis_adult: { title:'Негнойный целлюлит — IDSA 2014', duration:'5 дней при клиническом ответе', options:[ {drug:'cephalexin', regimen:{dose_mg:500, freq:4, route:'PO'}}, {drug:'amoxicillin', regimen:{dose_mg:500, freq:3, route:'PO'}} ] },
-  pyelo_woman: { title:'Острый неосложнённый пиелонефрит (женщины) — IDSA 2011', duration:'Ciprofloxacin 7 дней; Levofloxacin 5 дней; TMP/SMX 14 дней (при чувствительности)', options:[ {drug:'ciprofloxacin', regimen:{dose_mg:500, freq:2, route:'PO'}}, {drug:'levofloxacin', regimen:{dose_mg:750, freq:1, route:'PO'}}, {drug:'tmpsmx', regimen:{dose_mg:160, freq:2, route:'PO'}} ] },
-  mrsa_ssti_outpt: { title:'Гнойные SSTI (вне стационара) — IDSA 2014', duration:'5–10 дней + дренирование', options:[ {drug:'tmpsmx', regimen:{dose_mg:160, freq:2, route:'PO'}}, {drug:'doxycycline', regimen:{dose_mg:100, freq:2, route:'PO'}} ] },
-  hpylori_empiric: { title:'H. pylori (эмпирическая) — ACG 2024', duration:'14 дней', options:[ {drug:'metronidazole', regimen:{pattern:'Оптимизированная квадротерапия: PPI BID + Bismuth QID + Tetracycline 500 mg QID + Metronidazole 500 mg TID–QID'}} ] },
-  meningitis_child: { title:'Бактериальный менингит (эмпирическая, дети) — UCSF/ID', duration:'Согласно диагнозу/возбудителю', options:[ {drug:'ceftriaxone', regimen:{pattern:'Ceftriaxone 50 mg/kg/dose IV q12h (макс 2000 mg/доза) + добавить Vancomycin по TDM; Ampicillin при риске Listeria'}} ] }
+  cap_adult: { title:'CAP у взрослых без коморбидностей — IDSA/ATS 2019', duration:'5 дней при клинической стабилизации', allowed:['amoxicillin','doxycycline','azithromycin'], options:[ {drug:'amoxicillin', regimen:{dose_mg:1000, freq:3, route:'PO'}}, {drug:'doxycycline', regimen:{dose_mg:100, freq:2, route:'PO'}}, {drug:'azithromycin', regimen:{pattern:'500 mg день 1, затем 250 mg q24h дни 2–5', route:'PO'}} ] },
+  strep_adult: { title:'Острый стрептококковый фарингит — IDSA/CDC', duration:'10 дней', allowed:['amoxicillin','cephalexin'], options:[ {drug:'amoxicillin', regimen:{dose_mg:500, freq:2, route:'PO'}}, {drug:'cephalexin', regimen:{dose_mg:500, freq:2, route:'PO'}} ] },
+  aom_child: { title:'Острый средний отит у детей — AAP 2013', duration:'5–10 дней (по возрасту/тяжести)', allowed:['amoxicillin','amoxclav'], options:[ {drug:'amoxicillin', ped:{perkg_perday:90, freq:2, max_day_mg:4000}}, {drug:'amoxclav', ped:{perkg_perday:90, freq:2, max_day_mg:4000}} ] },
+  sinusitis_adult: { title:'Острый бактериальный риносинусит — IDSA/NICE', duration:'5–7 дней', allowed:['amoxclav','doxycycline'], options:[ {drug:'amoxclav', regimen:{dose_mg:875, freq:2, route:'PO'}}, {drug:'doxycycline', regimen:{dose_mg:100, freq:2, route:'PO'}} ] },
+  cystitis_woman: { title:'Неосложнённый цистит у женщин — IDSA 2011', duration:'Nitrofurantoin 5 дней; TMP/SMX 3 дня (при местной резистентности ≤20%)', allowed:['nitrofurantoin','tmpsmx'], options:[ {drug:'nitrofurantoin', regimen:{dose_mg:100, freq:2, route:'PO'}}, {drug:'tmpsmx', regimen:{dose_mg:160, freq:2, route:'PO'}} ] },
+  cellulitis_adult: { title:'Негнойный целлюлит — IDSA 2014', duration:'5 дней при клиническом ответе', allowed:['cephalexin','amoxicillin'], options:[ {drug:'cephalexin', regimen:{dose_mg:500, freq:4, route:'PO'}}, {drug:'amoxicillin', regimen:{dose_mg:500, freq:3, route:'PO'}} ] },
+  pyelo_woman: { title:'Острый неосложнённый пиелонефрит (женщины) — IDSA 2011', duration:'Ciprofloxacin 7 дней; Levofloxacin 5 дней; TMP/SMX 14 дней (чувствительность +)', allowed:['ciprofloxacin','levofloxacin','tmpsmx'], options:[ {drug:'ciprofloxacin', regimen:{dose_mg:500, freq:2, route:'PO'}}, {drug:'levofloxacin', regimen:{dose_mg:750, freq:1, route:'PO'}}, {drug:'tmpsmx', regimen:{dose_mg:160, freq:2, route:'PO'}} ] },
+  mrsa_ssti_outpt: { title:'Гнойные SSTI (вне стационара) — IDSA 2014', duration:'5–10 дней + дренирование', allowed:['tmpsmx','doxycycline'], options:[ {drug:'tmpsmx', regimen:{dose_mg:160, freq:2, route:'PO'}}, {drug:'doxycycline', regimen:{dose_mg:100, freq:2, route:'PO'}} ] },
+  hpylori_empiric: { title:'H. pylori (эмпирическая) — ACG 2024', duration:'14 дней', allowed:['metronidazole'], options:[ {drug:'metronidazole', regimen:{pattern:'Оптимизированная квадротерапия: PPI BID + Bismuth QID + Tetracycline 500 mg QID + Metronidazole 500 mg TID–QID'}} ] },
+  meningitis_child: { title:'Бактериальный менингит (эмпирическая, дети) — UCSF/ID', duration:'По возбудителю', allowed:['ceftriaxone'], options:[ {drug:'ceftriaxone', regimen:{pattern:'Ceftriaxone 50 mg/kg/dose IV q12h (макс 2000 mg/доза) + Vancomycin по TDM; Ampicillin при риске Listeria'}} ] }
 };
-const PRESET_KEYS = Object.keys(PRESETS);
 
-// ===== ЛОГИКА РАСЧЁТА =====
-function applyRenal(drugKey, regimen, egfr){ const rules=(DB[drugKey].renal||[]).sort((a,b)=>a.maxCrCl-b.maxCrCl); let notes=[]; if(!egfr||egfr<=0) return {regimen, notes}; for(const r of rules){ if(r.maxCrCl===0){ continue; } if(egfr<=r.maxCrCl){ if(r.change){ if(r.change.freq) regimen.freq=r.change.freq; if(r.change.doseFactor) regimen.dose_mg=Math.round((regimen.dose_mg||0)*(r.change.doseFactor)); if(r.change.cap875&&regimen.dose_mg>=875) regimen.dose_mg=500; if(r.change.schedule) notes.push(r.change.schedule); if(r.change.avoid) notes.push('Противопоказан при текущем eGFR'); } break; } } return {regimen, notes}; }
-function applyHepatic(drugKey, regimen, hepatic){ const h=DB[drugKey].hepatic?.[hepatic]; let notes=[]; if(h){ if(h.factor&&h.factor!==1){ regimen.dose_mg=Math.round((regimen.dose_mg||0)*h.factor);} } return {regimen, notes}; }
-function capByMax(drugKey, regimen){ const max=DB[drugKey].max_day_mg; let notes=[]; if(max){ const perDay=(regimen.dose_mg||0)*(regimen.freq||1); if(perDay>max){ const newDose=Math.floor(max/(regimen.freq||1)); if(newDose>0){ regimen.dose_mg=newDose; notes.push(`Ограничено макс. суточной дозой: ${formatDose(max)}/сут.`); } } } return {regimen, notes}; }
-function roundPractical(regimen){ const steps=[62.5,125,200,250,400,500,625,750,875,1000,1500,2000]; let nearest=steps.reduce((best,s)=>Math.abs((regimen.dose_mg||0)-s)<Math.abs((regimen.dose_mg||0)-best)?s:best, steps[0]); regimen.dose_mg=nearest; return regimen; }
+// ===== ВАЛИДАЦИИ =====
+function validateApplicability(drugKey, ageYears, route, nosologyKey){
+  const errs=[]; const warns=[]; const d=DB[drugKey];
+  // Маршрут
+  if(d && !d.routes.includes(route)){
+    errs.push(`Выбранный путь введения не разрешён для ${d.name}. Доступно: ${d.routes.join(', ')}`);
+  }
+  // Возрастные ограничения
+  if(d.age_lims){
+    if(d.age_lims.avoid_under!=null && ageYears < d.age_lims.avoid_under){
+      errs.push(d.age_lims.caution_note || 'Не применим по возрасту');
+    }
+  }
+  // Нозология совместимость
+  if(nosologyKey){ const p=PRESETS[nosologyKey]; if(p && p.allowed && !p.allowed.includes(drugKey)){
+      warns.push(`Выбранный МНН не входит в перечень рекомендуемых для выбранной нозологии по протоколу.`);
+    }
+  }
+  return {errs, warns};
+}
 
-function calcAdult(drugKey, severity, egfr, hepatic, baseReg=null){ let reg= baseReg ? {...baseReg} : (DB[drugKey].adult.find(x=>x.key===severity)||DB[drugKey].adult[0]); reg={...reg}; const renal=applyRenal(drugKey,{...reg},egfr); reg=renal.regimen; let notes=[...renal.notes]; const hep=applyHepatic(drugKey,reg,hepatic); reg=hep.regimen; notes.push(...hep.notes); const cap=capByMax(drugKey,reg); reg=cap.regimen; notes.push(...cap.notes); if(reg.dose_mg) reg=roundPractical(reg); return {reg, notes}; }
+// ===== РАСЧЁТ =====
+function applyRenal(drugKey, regimen, egfr){ const rules=(DB[drugKey].renal||[]).sort((a,b)=>a.maxCrCl-b.maxCrCl); let notes=[]; if(!egfr||egfr<=0) return {regimen, notes}; for(const r of rules){ if(!r.maxCrCl && r.maxCrCl!==0) continue; if(r.maxCrCl===0){ continue; } if(egfr<=r.maxCrCl){ if(r.change){ if(r.change.freq) regimen.freq=r.change.freq; if(r.change.doseFactor) regimen.dose_mg=Math.round((regimen.dose_mg||0)*(r.change.doseFactor)); if(r.change.cap875&&regimen.dose_mg>=875) regimen.dose_mg=500; if(r.change.schedule) notes.push(r.change.schedule); if(r.change.avoid) notes.push('Противопоказан при текущем eGFR'); } break; } } return {regimen, notes}; }
+function capByMax(drugKey, regimen){ const max=DB[drugKey].max_day_mg; let notes=[]; if(max && regimen.dose_mg && regimen.freq){ const perDay=(regimen.dose_mg||0)*(regimen.freq||1); if(perDay>max){ const newDose=Math.floor(max/(regimen.freq||1)); if(newDose>0){ regimen.dose_mg=newDose; notes.push(`Ограничено макс. суточной дозой: ${formatDose(max)}/сут.`); } } } return {regimen, notes}; }
+function roundPractical(regimen){ const steps=[62.5,125,200,250,400,500,625,750,875,1000,1500,2000]; if(regimen.dose_mg==null) return regimen; let nearest=steps.reduce((best,s)=>Math.abs(regimen.dose_mg-s)<Math.abs(regimen.dose_mg-best)?s:best, steps[0]); regimen.dose_mg=nearest; return regimen; }
 
-function calcPeds(drugKey, weight){ const d=DB[drugKey]; if(!d.ped) return {text:'Нет педиатрического режима в калькуляторе'}; if(drugKey==='azithromycin'){ const d1=Math.min(d.ped.max_day1_mg, Math.round(weight*d.ped.perkg_day1)); const d2=Math.min(d.ped.max_other_mg, Math.round(weight*d.ped.perkg_day2_5)); return {text:`День 1: ${d1} mg 1×; Дни 2–5: ${d2} mg 1×`}; } if(drugKey==='doxycycline'){ return {text:d.ped.note}; } if(drugKey==='tmpsmx'){ const perDayTMP=Math.min(d.ped.max_day_mg_TMP, Math.round(weight*d.ped.perkg_perday_TMP)); const perDoseTMP=Math.round(perDayTMP/d.ped.freq); return {text:`TMP ${perDoseTMP} mg ${freqText(d.ped.freq)} (в сутки: ${perDayTMP} mg TMP)`}; } if(d.ped.perkg_perdose){ const perDose=Math.round(weight*d.ped.perkg_perdose); return {text:`${perDose} mg ${freqText(d.ped.freq)}`}; } const perDayMin=Math.round(weight*d.ped.perkg_perday_min); const perDayMax=Math.round(weight*d.ped.perkg_perday_max); const perDoseMin=Math.round(perDayMin/d.ped.freq); const perDoseMax=Math.round(perDayMax/d.ped.freq); const maxDay=d.ped.max_day_mg?`; макс: ${d.ped.max_day_mg} mg/сут`:''; let extra=''; if(d.ped.clav_limit_mgkgday){ extra=`; клавуланат ≤ ${d.ped.clav_limit_mgkgday} mg/кг/сут`; } return {text:`${perDoseMin}–${perDoseMax} mg ${freqText(d.ped.freq)} (в сутки: ${perDayMin}–${perDayMax} mg${maxDay}${extra})`}; }
+function calcAdult(drugKey, severity, egfr, baseReg=null){ let reg= baseReg ? {...baseReg} : (DB[drugKey].adult.find(x=>x.key===severity)||DB[drugKey].adult[0]); reg={...reg}; const renal=applyRenal(drugKey,{...reg},egfr); reg=renal.regimen; let notes=[...renal.notes]; const cap=capByMax(drugKey,reg); reg=cap.regimen; notes.push(...cap.notes); if(reg.dose_mg) reg=roundPractical(reg); return {reg, notes}; }
 
-function buildCI(ci){ if(!ci||!ci.length) return ''; return `<div class="warn mt-3"><div class="font-semibold">Противопоказания (ключевые)</div><ul class="list-disc ml-5 mt-1">${ci.map(x=>`<li>${x}</li>`).join('')}</ul><div class="text-xs mt-1">Не исчерпывающий перечень — сверяйте с SmPC/BNF/NICE.</div></div>`; }
+function calcPeds(drugKey, weight, severity){ const d=DB[drugKey]; if(!d.ped) return {err:'Для выбранного МНН нет утверждённого педиатрического режима в калькуляторе.'};
+  // Спец‑шаблоны
+  if(drugKey==='azithromycin'){ const d1=Math.min(d.ped.max_day1_mg, Math.round(weight*(d.ped.perkg_day1))); const d2=Math.min(d.ped.max_other_mg, Math.round(weight*(d.ped.perkg_day2_5))); return {pattern:`День 1: ${d1} mg 1×; Дни 2–5: ${d2} mg 1×`}; }
+  if(drugKey==='doxycycline'){ return {err:d.ped.note}; }
+  if(drugKey==='tmpsmx'){ const perDayTMP=Math.min(d.ped.max_day_mg_TMP, Math.round(weight*d.ped.perkg_perday_TMP)); const perDoseTMP=Math.round(perDayTMP/d.ped.freq); return {dose_mg:perDoseTMP, unit:'TMP', freq:d.ped.freq, perDayTMP}; }
+  if(d.ped.perkg_perdose){ const perDose=Math.round(weight*d.ped.perkg_perdose); return {dose_mg:perDose, freq:d.ped.freq}; }
+  // Общая схема mg/kg/сут — выбираем край по тяжести
+  const perkg = severity==='severe' ? d.ped.perkg_perday_max : d.ped.perkg_perday_min;
+  const perDay = Math.round(weight*perkg);
+  const perDose = Math.round(perDay/(d.ped.freq||1));
+  const dayCap = d.ped.max_day_mg ? Math.min(perDay, d.ped.max_day_mg) : perDay; // кап по сут
+  const perDoseCapped = Math.round(dayCap/(d.ped.freq||1));
+  return {dose_mg:perDoseCapped, freq:d.ped.freq, perDay:dayCap};
+}
 
-function renderResult({drug, route, regimen, notes, isPeds, pedsText, egfr, duration, nosologyTitle}){
-  const d=DB[drug];
-  let html = '';
+// ===== ОТОБРАЖЕНИЕ =====
+function buildList(items, cls){ if(!items||!items.length) return ''; return `<div class="${cls||'warn'} mt-3"><ul class="list-disc ml-5">${items.map(x=>`<li>${x}</li>`).join('')}</ul></div>`; }
+function buildCI(ci){ if(!ci||!ci.length) return ''; return `<div class="warn mt-3"><div class="font-semibold">Противопоказания (ключевые)</div><ul class="list-disc ml-5 mt-1">${ci.map(x=>`<li>${x}</li>`).join('')}</ul><div class="text-xs mt-1">Не исчерпывающий перечень — сверяйтесь со SmPC/BNF/NICE.</div></div>`; }
+
+function renderAdult(d, regimen, egfr, duration, nosologyTitle, warns, errs){
+  let html='';
   if(nosologyTitle){ html += `<div class="ok"><div class="font-semibold">Нозология</div><div>${nosologyTitle}${duration?` • Длительность: <b>${duration}</b>`:''}</div></div>`; }
-  html += `<div class="text-base font-semibold flex items-center gap-2 mt-3">${d.name} ${awareBadge(drug)}</div>`;
+  html += `<div class="text-base font-semibold flex items-center gap-2 mt-3">${d.name} ${awareBadge(keyFromName(d.name))}</div>`;
+  if(regimen.pattern){ html += `<div class="mono mt-1">${regimen.pattern}${regimen.route?` (${regimen.route})`:''}</div>`; }
+  else if(regimen.dose_mg){ const perDose=formatDose(regimen.dose_mg); const perDay=formatDose(regimen.dose_mg*(regimen.freq||1)); html += `<div class="row mono mt-1"><span class="label">Доза на приём:</span><span>${perDose}</span></div>`+`<div class="row mono"><span class="label">Кратность:</span><span>${freqText(regimen.freq)}</span></div>`+`<div class="row mono"><span class="label">Суточная доза:</span><span>${perDay}</span></div>`+`<div class="row mono"><span class="label">Путь:</span><span>${regimen.route}</span></div>`; }
+  if(egfr){ html += `<div class="mt-3 text-xs muted">Расчётная почечная функция: <b>${egfr} мл/мин</b></div>`; }
+  if(warns&&warns.length) html += buildList(warns,'warn');
+  if(errs&&errs.length) html += buildList(errs,'err');
+  html += buildCI(d.ci);
+  html += `<div class="mt-4 text-[11px]">⚠️ Справочный инструмент. Следуйте официальным протоколам и локальным документам.</div>`;
+  byId('result').innerHTML=html;
+}
 
-  if(regimen.pattern){
-    html += `<div class="mono mt-1">${regimen.pattern}${regimen.route?` (${regimen.route})`:''}</div>`;
-  } else if(regimen.dose_mg){
-    const perDose = formatDose(regimen.dose_mg);
-    const perDay = regimen.dose_mg * (regimen.freq||1);
-    html += `<div class="row mono mt-1"><span class="label">Доза на приём:</span> <span>${perDose}</span></div>`+
-            `<div class="row mono"><span class="label">Кратность:</span> <span>${freqText(regimen.freq)}</span></div>`+
-            `<div class="row mono"><span class="label">Суточная доза:</span> <span>${formatDose(perDay)}</span></div>`+
-            `<div class="row mono"><span class="label">Путь:</span> <span>${regimen.route||route}</span></div>`;
+function renderPeds(d, pcalc, duration, nosologyTitle, warns, errs){
+  let html='';
+  if(nosologyTitle){ html += `<div class="ok"><div class="font-semibold">Нозология</div><div>${nosologyTitle}${duration?` • Длительность: <b>${duration}</b>`:''}</div></div>`; }
+  html += `<div class="text-base font-semibold flex items-center gap-2 mt-3">${d.name} ${awareBadge(keyFromName(d.name))}<span class="badge" style="background:#e0f2fe;color:#0369a1">Педиатрия</span></div>`;
+  if(pcalc.err){ html += `<div class="err mt-2">${pcalc.err}</div>`; }
+  else if(pcalc.pattern){ html += `<div class="mono mt-1">${pcalc.pattern}</div>`; }
+  else if(pcalc.dose_mg){ const perDose=formatDose(pcalc.dose_mg); const perDay = pcalc.perDayTMP? `${pcalc.perDayTMP} mg TMP/сут` : (pcalc.perDay? formatDose(pcalc.perDay):''); const freq=pcalc.freq; html += `<div class="row mono mt-1"><span class="label">Доза на приём:</span><span>${perDose}${pcalc.unit?' '+pcalc.unit:''}</span></div>`+`<div class="row mono"><span class="label">Кратность:</span><span>${freqText(freq)}</span></div>`+ (perDay?`<div class="row mono"><span class="label">Суточная доза:</span><span>${perDay}</span></div>`:'') +`<div class="row mono"><span class="label">Путь:</span><span>${d.routes.join(', ')}</span></div>`; }
+  if(warns&&warns.length) html += buildList(warns,'warn');
+  if(errs&&errs.length) html += buildList(errs,'err');
+  html += buildCI(d.ci);
+  html += `<div class="mt-4 text-[11px]">⚠️ Справочный инструмент. Следуйте официальным протоколам и локальным документам.</div>`;
+  byId('result').innerHTML=html;
+}
+
+function keyFromName(name){ return Object.keys(DB).find(k=>DB[k].name===name) || ''; }
+
+// ===== ОСНОВНАЯ ЛОГИКА КНОПКИ "РАССЧИТАТЬ" =====
+function onCalc(){
+  const age=parseFloat(byId('age').value); const weight=parseFloat(byId('weight').value); const sex=byId('sex').value; const severity=byId('severity').value; const egfrInput=parseFloat(byId('egfr').value); const scr=parseFloat(byId('scr').value); const scrUnit=byId('scrUnit').value; const hepatic=byId('hepatic').value; let route=byId('route').value; const nosologyKey=byId('nosology').value||null;
+
+  const isPeds = age < 18; setTab(!isPeds); // авто‑переключение таба и ярлыка
+
+  // Проверка eGFR
+  let egfr=isFinite(egfrInput)?egfrInput:null; if((!egfr||egfr<=0)&&scr>0){ if(isPeds){ const ht=parseFloat(byId('height').value); if(!ht){ byId('result').innerHTML = `<div class="err">Для расчёта eGFR по SCr у детей необходимо ввести рост (формула Шварца). Введите рост или удалите SCr.</div>`; return; } const eg=schwartz({height:ht, scr, scrUnit}); if(eg) egfr=eg; } else { egfr=cockcroftGaultCrCl({age,weight,sex,scr,scrUnit}); } }
+
+  // Подстановка из нозологии (фикс разрешённых МНН)
+  let duration=null, nosologyTitle=null, baseReg=null; if(nosologyKey){ const p=PRESETS[nosologyKey]; if(p){ duration=p.duration; nosologyTitle=p.title; // если выбранный препарат не из списка — автоматически подставляем первый
+      if(!p.allowed.includes(byId('drug').value)){ byId('drug').value=p.allowed[0]; }
+      const first=p.options.find(o=>o.drug===byId('drug').value) || p.options[0]; baseReg=first.regimen||null; route = (baseReg && baseReg.route) ? baseReg.route : route; }
   }
 
-  if(d.forms){ html += `<div class="text-xs muted mt-1">Формы: ${d.forms.join('; ')}</div>`; }
-  if(!isPeds){ html += `<div class="mt-4"><div class="text-base font-semibold">Дети (справочно):</div><div class="mono">${pedsText}</div></div>`; }
-  else { html += `<div class="mt-4"><div class="text-base font-semibold">Дети:</div><div class="mono">${pedsText}</div></div>`; }
-  if(egfr){ html += `<div class="mt-4 text-xs muted">Расчётная почечная функция: <span class="font-semibold">${egfr} мл/мин</span></div>`; }
+  const drug=byId('drug').value; const d=DB[drug];
 
-  if(notes && notes.length){ html += `<div class="warn mt-3"><div class="font-semibold">Примечания</div><ul class="list-disc ml-5 mt-1">${notes.map(x=>`<li>${x}</li>`).join('')}</ul></div>`; }
+  // Жёсткая проверка маршрута
+  if(!d.routes.includes(route)){ route=d.routes[0]; }
 
-  html += buildCI(d.ci);
+  // Применимость
+  const {errs, warns} = validateApplicability(drug, age, route, nosologyKey);
 
-  html += `<div class="mt-4 text-[11px]">⚠️ Справочный инструмент. Следуйте официальным протоколам и локальным документам.</div>`;
-  byId('result').innerHTML = html;
+  // Спец‑правила: нитрофурантоин и eGFR
+  if(drug==='nitrofurantoin' && egfr!=null && egfr<30){ errs.push('Нитрофурантоин противопоказан при eGFR <30 мл/мин/1,73 м².'); }
+
+  if(isPeds){
+    // Возрастные лимиты
+    if(d.ped && d.ped.min_age && age<d.ped.min_age){ errs.push('Не применимо по возрасту для педиатрии.'); }
+    // Вычисление дозы по массе
+    if(!weight || weight<=0){ byId('result').innerHTML = `<div class="err">Укажите массу тела ребёнка (кг) для расчёта дозы.</div>`; return; }
+    const pcalc = calcPeds(drug, weight, severity);
+    renderPeds(d, pcalc, duration, nosologyTitle, warns, errs);
+  } else {
+    // Взрослые — расчёт взрослой схемы с коррекциями
+    const {reg, notes} = calcAdult(drug, severity, egfr, baseReg);
+    // Печень (минимально влияем только на метронидазол severe)
+    if(hepatic==='severe' && drug==='metronidazole'){ reg.dose_mg = Math.round((reg.dose_mg||0)*0.5); notes.push('Тяжёлая печёночная недостаточность: снизить дозу метранидазола.'); }
+    // Итог
+    renderAdult(d, reg, egfr, duration, nosologyTitle, warns.concat(notes||[]), errs);
+  }
 }
 
+// ===== UI ПОВЕДЕНИЕ =====
 function populateDrugs(filter='all'){
-  const sel=byId('drug'); sel.innerHTML='';
-  Object.keys(DB).forEach(k=>{ const grp=AWARE[k]||'ACCESS'; if(filter!=='all' && grp!==filter) return; const opt=document.createElement('option'); opt.value=k; opt.textContent=DB[k].name; sel.appendChild(opt); });
-  updateAwareTag();
-}
+  const sel=byId('drug'); sel.innerHTML=''; Object.keys(DB).forEach(k=>{ const grp=AWARE[k]||'ACCESS'; if(filter!=='all' && grp!==filter) return; const opt=document.createElement('option'); opt.value=k; opt.textContent=DB[k].name; sel.appendChild(opt); }); updateAwareTag(); }
 function updateAwareTag(){ const d=byId('drug').value; byId('awareTag').innerHTML = awareBadge(d); const routeSel=byId('route'); if(!DB[d].routes.includes(routeSel.value)){ routeSel.value=DB[d].routes[0]; } }
-
-function onCalc(){
-  const age=parseInt(byId('age').value,10); const weight=parseFloat(byId('weight').value); const sex=byId('sex').value; const severity=byId('severity').value; const egfrInput=parseFloat(byId('egfr').value); const scr=parseFloat(byId('scr').value); const scrUnit=byId('scrUnit').value; const hepatic=byId('hepatic').value; const route=byId('route').value; const isPeds=age<18;
-  let egfr=isFinite(egfrInput)?egfrInput:null; if((!egfr||egfr<=0)&&scr>0){ if(isPeds){ const ht=parseFloat(byId('height').value); const eg=schwartz({height:ht, scr, scrUnit}); if(eg) egfr=eg; } else { egfr=cockcroftGaultCrCl({age,weight,sex,scr,scrUnit}); } }
-
-  // Нозология → выбор первой опции и подстановка препарата/режима
-  let nosologyTitle=null, duration=null, baseReg=null; const key=byId('nosology').value; if(key){ const p=PRESETS[key]; if(p){ nosologyTitle=p.title; duration=p.duration; const first=p.options[0]; if(first.drug && DB[first.drug]){ byId('drug').value=first.drug; updateAwareTag(); baseReg=first.regimen||null; } else { baseReg=first.regimen||null; } } }
-
-  const drug=byId('drug').value; const {reg, notes} = calcAdult(drug, severity, egfr, hepatic, baseReg);
-  const p = calcPeds(drug, weight);
-  renderResult({drug, route, regimen: reg.pattern?reg:reg, notes, isPeds, pedsText:p.text, egfr, duration, nosologyTitle});
-}
-
 function populateNosology(){ const sel=byId('nosology'); Object.keys(PRESETS).forEach(key=>{ const opt=document.createElement('option'); opt.value=key; opt.textContent=PRESETS[key].title; sel.appendChild(opt); }); sel.addEventListener('change', ()=>{ const key=sel.value; const box=byId('nosologyOptions'); box.innerHTML=''; if(!key){ return; } const options=PRESETS[key].options; options.forEach((o,i)=>{ const b=document.createElement('button'); b.type='button'; b.className='chip'+(i===0?' chip-active':''); b.textContent = DB[o.drug]?DB[o.drug].name:'Комбинированный режим'; b.onclick=()=>{ box.querySelectorAll('button').forEach(x=>x.classList.remove('chip-active')); b.classList.add('chip-active'); if(o.drug && DB[o.drug]){ byId('drug').value=o.drug; updateAwareTag(); } }; box.appendChild(b); }); }); }
-
 function copyRegimen(){ const res=byId('result'); if(!res.innerText) return; navigator.clipboard.writeText(res.innerText).then(()=>{ byId('copy').textContent='Скопировано'; setTimeout(()=>byId('copy').textContent='Скопировать режим',1500); }); }
 
-// ===== СВЯЗЬ С UI =====
+// Переключение Adult/Peds (может вызываться программно)
+function setTab(isAdult){ const a=byId('tabAdult'), p=byId('tabPeds'); if(isAdult){ a.classList.add('active'); p.classList.remove('active'); a.setAttribute('aria-selected','true'); p.setAttribute('aria-selected','false'); byId('pedsHtRow').classList.add('hidden'); byId('modeLabel').textContent='Режим: ВЗРОСЛЫЙ'; } else { p.classList.add('active'); a.classList.remove('active'); p.setAttribute('aria-selected','true'); a.setAttribute('aria-selected','false'); byId('pedsHtRow').classList.remove('hidden'); byId('modeLabel').textContent='Режим: ДЕТСКИЙ'; } }
+
+// Слушатели
 byId('calc').addEventListener('click', onCalc);
 byId('copy').addEventListener('click', copyRegimen);
 byId('drug').addEventListener('change', updateAwareTag);
 byId('reset').addEventListener('click', ()=>{ window.location.reload(); });
-
-function setTab(isAdult){ const a=byId('tabAdult'), p=byId('tabPeds'); if(isAdult){ a.classList.add('active'); p.classList.remove('active'); a.setAttribute('aria-selected','true'); p.setAttribute('aria-selected','false'); byId('pedsHtRow').classList.add('hidden'); byId('modeLabel').textContent='Режим: ВЗРОСЛЫЙ'; } else { p.classList.add('active'); a.classList.remove('active'); p.setAttribute('aria-selected','true'); a.setAttribute('aria-selected','false'); byId('pedsHtRow').classList.remove('hidden'); byId('modeLabel').textContent='Режим: ДЕТСКИЙ'; } }
-byId('tabAdult').addEventListener('click', ()=>setTab(true));
-byId('tabPeds').addEventListener('click', ()=>setTab(false));
+byId('age').addEventListener('input', ()=>{ const age=parseFloat(byId('age').value); setTab(!(age<18)); });
 
 Array.from(document.querySelectorAll('[data-aware-filter]')).forEach((btn,idx)=>{ if(idx===0) btn.classList.add('active'); btn.addEventListener('click',()=>{ Array.from(document.querySelectorAll('[data-aware-filter]')).forEach(b=>b.classList.remove('active')); btn.classList.add('active'); populateDrugs(btn.getAttribute('data-aware-filter')); }); });
 
